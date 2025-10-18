@@ -1,0 +1,3 @@
+Exercise2:
+	@echo Ban co the nhap cac lenh sau : ./Exercise2 ls or ./Exercise2 date
+	
