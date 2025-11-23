@@ -1,0 +1,70 @@
+// consumer_fixed.c
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <fcntl.h>
+#include <unistd.h>
+#include <sys/mman.h>
+#include <sys/stat.h>
+#include <semaphore.h>
+#include <errno.h>
+#include "../include/shared_defs.h"
+
+int main(void) {
+    sem_t *sem;
+
+    // Try to open semaphore; if not exist yet, wait a bit and retry
+    for (int tries = 0; tries < 50; ++tries) { // try ~5 seconds
+        sem = sem_open(SEM_NAME, 0);
+        if (sem != SEM_FAILED) break;
+        if (errno == ENOENT) {
+            usleep(100000); // 100 ms
+            continue;
+        } else {
+            perror("sem_open");
+            return 1;
+        }
+    }
+    if (sem == SEM_FAILED) {
+        fprintf(stderr, "sem_open failed after retries\n");
+        return 1;
+    }
+
+    // Open shared memory (must exist)
+    int fd_consume = shm_open(SHM_NAME, O_RDONLY, 0);
+    if (fd_consume == -1) {
+        perror("shm_open");
+        sem_close(sem);
+        return 1;
+    }
+
+    size_t size = sizeof(struct Products);
+    void *map = mmap(NULL, size, PROT_READ, MAP_SHARED, fd_consume, 0);
+    if (map == MAP_FAILED) {
+        perror("mmap");
+        close(fd_consume);
+        sem_close(sem);
+        return 1;
+    }
+
+    // Wait for producer to post semaphore
+    if (sem_wait(sem) == -1) {
+        perror("sem_wait");
+        munmap(map, size);
+        close(fd_consume);
+        sem_close(sem);
+        return 1;
+    }
+
+    struct Products *p = (struct Products*)map;
+    // Safe to read
+    printf("Consumer (sem): id=%d name=%s price=%.2f\n", p->id, p->nameProduct, p->price);
+
+    munmap(map, size);
+    close(fd_consume);
+    sem_close(sem);
+
+    // Optionally: sem_unlink(SEM_NAME); shm_unlink(SHM_NAME); by cleanup process
+
+    return 0;
+}

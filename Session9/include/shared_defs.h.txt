@@ -1,0 +1,15 @@
+#ifndef SHARED_DEFS_H
+#define SHARED_DEFS_H
+
+#define SHM_NAME "/shareInfoProducts"
+#define SEM_NAME "/shareInfoProducts_sem"
+#define NAME_LEN 128
+
+struct Products {
+    int ready;
+    int id;
+    char nameProduct[NAME_LEN];
+    float price;
+};
+
+#endif

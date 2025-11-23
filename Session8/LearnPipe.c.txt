@@ -1,0 +1,99 @@
+/**
+ * pipe_ls_wc.c
+ *
+ * Mô phỏng lại chức năng của toán tử pipe (|) trong shell,
+ * cụ thể là lệnh:  ls -l | wc -l
+ *
+ * Cấu trúc:
+ *  - Tiến trình cha: tạo pipe, fork 2 tiến trình con.
+ *  - Con 1: thực hiện "ls -l", ghi dữ liệu vào đầu ghi (write-end) của pipe.
+ *  - Con 2: thực hiện "wc -l", đọc dữ liệu từ đầu đọc (read-end) của pipe.
+ *  - Cha: đóng cả hai đầu pipe, chờ con kết thúc.
+ *
+ * Kết quả: In ra số lượng file/thư mục trong thư mục hiện tại.
+ */
+
+#include <stdio.h>
+#include <stdlib.h>
+#include <unistd.h>
+#include <sys/types.h>
+#include <sys/wait.h>
+
+int main(void) {
+    int pipefd[2]; // pipefd[0] là đầu đọc, pipefd[1] là đầu ghi
+
+    // 1️⃣ Tạo pipe
+    if (pipe(pipefd) == -1) {
+        perror("pipe failed");
+        exit(EXIT_FAILURE);
+    }
+
+    // 2️⃣ Tạo tiến trình con thứ nhất (ls -l)
+    pid_t pid1 = fork();
+    if (pid1 < 0) {
+        perror("fork failed");
+        exit(EXIT_FAILURE);
+    }
+
+    if (pid1 == 0) {
+        // --- Tiến trình con 1 ---
+        // Đóng đầu đọc (vì chỉ ghi vào pipe)
+        close(pipefd[0]);
+
+        // Chuyển hướng stdout -> đầu ghi của pipe
+        if (dup2(pipefd[1], STDOUT_FILENO) == -1) {
+            perror("dup2 failed");
+            exit(EXIT_FAILURE);
+        }
+
+        // Đóng đầu ghi cũ (không cần nữa)
+        close(pipefd[1]);
+
+        // Thực thi lệnh "ls -l"
+        execlp("ls", "ls", "-l", NULL);
+
+        // Nếu execlp thất bại
+        perror("execlp ls failed");
+        exit(EXIT_FAILURE);
+    }
+
+    // 3️⃣ Tạo tiến trình con thứ hai (wc -l)
+    pid_t pid2 = fork();
+    if (pid2 < 0) {
+        perror("fork failed");
+        exit(EXIT_FAILURE);
+    }
+
+    if (pid2 == 0) {
+        // --- Tiến trình con 2 ---
+        // Đóng đầu ghi (vì chỉ đọc)
+        close(pipefd[1]);
+
+        // Chuyển hướng stdin -> đầu đọc của pipe
+        if (dup2(pipefd[0], STDIN_FILENO) == -1) {
+            perror("dup2 failed");
+            exit(EXIT_FAILURE);
+        }
+
+        // Đóng đầu đọc cũ (không cần nữa)
+        close(pipefd[0]);
+
+        // Thực thi lệnh "wc -l"
+        execlp("wc", "wc", "-l", NULL);
+
+        // Nếu execlp thất bại
+        perror("execlp wc failed");
+        exit(EXIT_FAILURE);
+    }
+
+    // 4️⃣ Tiến trình cha
+    // Cha không đọc/ghi pipe => đóng cả 2 đầu
+    close(pipefd[0]);
+    close(pipefd[1]);
+
+    // Đợi cả hai tiến trình con kết thúc
+    wait(NULL);
+    wait(NULL);
+
+    return 0;
+}

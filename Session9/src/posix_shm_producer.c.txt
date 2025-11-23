@@ -1,0 +1,49 @@
+// producer.c
+#include <stdio.h>
+#include <string.h>
+#include <fcntl.h>
+#include <sys/mman.h>
+#include <sys/stat.h>
+#include <unistd.h>
+#include <semaphore.h>
+#include <stdlib.h>
+#include <errno.h>
+#include "../include/shared_defs.h"
+
+int main(void) {
+    int fd = shm_open(SHM_NAME, O_CREAT | O_RDWR, 0666);
+    if (fd == -1) { perror("shm_open"); return 1; }
+    size_t size = sizeof(struct Products);
+    if (ftruncate(fd, (off_t)size) == -1) { perror("ftruncate"); close(fd); return 1; }
+
+    void *map = mmap(NULL, size, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
+    if (map == MAP_FAILED) { perror("mmap"); close(fd); return 1; }
+
+    // Create semaphore (or open existing). Initial value 0.
+    sem_t *sem = sem_open(SEM_NAME, O_CREAT, 0666, 0);
+    if (sem == SEM_FAILED) { perror("sem_open (producer)"); munmap(map, size); close(fd); return 1; }
+
+    struct Products *p = (struct Products*)map;
+    p->ready = 0;
+    p->id = 1;
+    strncpy(p->nameProduct, "Coca cola", NAME_LEN-1);
+    p->nameProduct[NAME_LEN-1] = '\0';
+    p->price = 12000.0f;
+
+    // Ensure visibility
+    msync(map, size, MS_SYNC);
+
+    // Signal consumer
+    if (sem_post(sem) == -1) { perror("sem_post"); }
+
+    printf("Producer: posted semaphore and wrote data\n");
+
+    // Keep program alive briefly so you can run consumer, or exit if consumer will run after.
+    // sleep(5); // optional
+
+    munmap(map, size);
+    close(fd);
+    sem_close(sem);
+    // Note: do NOT sem_unlink/ shm_unlink here if you want consumer to open later by name.
+    return 0;
+}
